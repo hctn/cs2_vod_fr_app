@@ -18,6 +18,7 @@ import {
   Filter,
   AlertTriangle,
   Link2,
+  Calendar,
 } from "lucide-react";
 
 /* ============================================================================
@@ -36,6 +37,7 @@ const MOCK_MATCHES = [
   {
     id: "m1",
     pandascoreId: "2374829",
+    matchDate: "2026-02-14",
     tournament: "IEM Katowice 2026",
     stage: "Quart de finale",
     teamA: "Vitality",
@@ -51,6 +53,7 @@ const MOCK_MATCHES = [
   {
     id: "m2",
     pandascoreId: "2374855",
+    matchDate: "2026-03-22",
     tournament: "Blast Premier Fall 2026",
     stage: "Demi-finale",
     teamA: "Natus Vincere",
@@ -66,6 +69,7 @@ const MOCK_MATCHES = [
   {
     id: "m3",
     pandascoreId: "2374701",
+    matchDate: "2026-01-30",
     tournament: "ESL Pro League S20",
     stage: "Poules",
     teamA: "G2",
@@ -81,6 +85,7 @@ const MOCK_MATCHES = [
   {
     id: "m4",
     pandascoreId: "2374912",
+    matchDate: "2026-02-16",
     tournament: "IEM Katowice 2026",
     stage: "Finale",
     teamA: "Astralis",
@@ -98,6 +103,7 @@ const MOCK_MATCHES = [
 const EMPTY_FORM = {
   id: null,
   pandascoreId: "",
+  matchDate: "",
   tournament: "",
   stage: "",
   teamA: "",
@@ -166,7 +172,24 @@ function normalizePandaScorePayload(data) {
     stage: data?.stage ?? "",
     format: data?.format || "BO3",
     pandascoreId: data?.pandascoreId != null ? String(data.pandascoreId) : "",
+    matchDate: isoToDateInput(data?.beginAt),
   };
+}
+
+// Convertit une date ISO ("2026-02-14T18:00:00Z") en valeur pour <input type="date">
+// ("2026-02-14"). Renvoie "" si la date est absente ou invalide.
+function isoToDateInput(iso) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toISOString().slice(0, 10);
+}
+
+function formatDateFr(dateStr) {
+  if (!dateStr) return "";
+  const d = new Date(`${dateStr}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleDateString("fr-FR", { day: "numeric", month: "short", year: "numeric" });
 }
 
 /* --- App ------------------------------------------------------------------ */
@@ -227,16 +250,26 @@ export default function App() {
 
   const filteredMatches = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return matches.filter((m) => {
-      const matchesQuery =
-        !q ||
-        m.teamA.toLowerCase().includes(q) ||
-        m.teamB.toLowerCase().includes(q) ||
-        m.tournament.toLowerCase().includes(q);
-      const matchesTournament = !filterTournament || m.tournament === filterTournament;
-      const matchesCaster = !filterCaster || m.caster === filterCaster;
-      return matchesQuery && matchesTournament && matchesCaster;
-    });
+    return matches
+      .filter((m) => {
+        const matchesQuery =
+          !q ||
+          m.teamA.toLowerCase().includes(q) ||
+          m.teamB.toLowerCase().includes(q) ||
+          m.tournament.toLowerCase().includes(q);
+        const matchesTournament = !filterTournament || m.tournament === filterTournament;
+        const matchesCaster = !filterCaster || m.caster === filterCaster;
+        return matchesQuery && matchesTournament && matchesCaster;
+      })
+      .sort((a, b) => {
+        // 1. Regroupées par tournoi (ordre alphabétique)
+        const byTournament = a.tournament.localeCompare(b.tournament, "fr");
+        if (byTournament !== 0) return byTournament;
+        // 2. Puis, à l'intérieur d'un même tournoi, du match le plus récent au plus ancien
+        const da = a.matchDate ? new Date(a.matchDate).getTime() : -Infinity;
+        const db = b.matchDate ? new Date(b.matchDate).getTime() : -Infinity;
+        return db - da;
+      });
   }, [matches, search, filterTournament, filterCaster]);
 
   /* --- Admin actions ---------------------------------------------------- */
@@ -313,6 +346,7 @@ export default function App() {
         tournament: normalized.tournament || f.tournament,
         stage: normalized.stage || f.stage,
         format: normalized.format || f.format,
+        matchDate: normalized.matchDate || f.matchDate,
       }));
       setSearchResults([]);
     } catch (err) {
@@ -352,8 +386,15 @@ export default function App() {
         throw new Error(data?.error || `Le proxy a répondu avec le statut ${res.status}.`);
       }
       const results = Array.isArray(data?.results) ? data.results : [];
-      setSearchResults(results);
-      if (results.length === 0) {
+      // Filet de sécurité : on retrie par date décroissante côté client, au cas où
+      // l'API renverrait un ordre imparfait (les matchs sans date connue vont en fin).
+      const sorted = [...results].sort((a, b) => {
+        const da = a.beginAt ? new Date(a.beginAt).getTime() : -Infinity;
+        const db = b.beginAt ? new Date(b.beginAt).getTime() : -Infinity;
+        return db - da;
+      });
+      setSearchResults(sorted);
+      if (sorted.length === 0) {
         setSearchError("Aucun match trouvé pour cette recherche.");
       }
     } catch (err) {
@@ -378,6 +419,7 @@ export default function App() {
       tournament: result.tournament || f.tournament,
       stage: result.stage || f.stage,
       format: result.format || f.format,
+      matchDate: isoToDateInput(result.beginAt) || f.matchDate,
     }));
     setSearchResults([]);
     setSearchQuery("");
@@ -637,6 +679,12 @@ function MatchCard({ match }) {
               <span className="shrink-0 text-slate-500">{match.stage}</span>
             </>
           )}
+          {match.matchDate && (
+            <span className="ml-auto flex shrink-0 items-center gap-1 text-slate-500">
+              <Calendar className="h-3 w-3" />
+              {formatDateFr(match.matchDate)}
+            </span>
+          )}
         </div>
 
         {/* Teams */}
@@ -785,6 +833,11 @@ function AdminView({
                       <span className="font-semibold text-slate-200">
                         {r.teamA || "?"} <span className="text-slate-600">vs</span>{" "}
                         {r.teamB || "?"}
+                        {r.beginAt && (
+                          <span className="ml-2 font-mono text-[10px] font-normal text-slate-500">
+                            {formatDateFr(isoToDateInput(r.beginAt))}
+                          </span>
+                        )}
                       </span>
                       <span className="text-slate-500">
                         {[r.tournament, r.stage].filter(Boolean).join(" · ") || r.name}
@@ -845,6 +898,14 @@ function AdminView({
                   value={form.tournament}
                   onChange={(e) => updateForm("tournament", e.target.value)}
                   placeholder="ex: IEM Katowice 2026"
+                  className="input"
+                />
+              </Field>
+              <Field label="Date du match">
+                <input
+                  type="date"
+                  value={form.matchDate}
+                  onChange={(e) => updateForm("matchDate", e.target.value)}
                   className="input"
                 />
               </Field>
