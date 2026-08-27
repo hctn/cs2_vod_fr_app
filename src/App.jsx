@@ -32,6 +32,8 @@ const STORAGE_KEY = "cs2vodfr_matches";
 const PROXY_BASE = "https://cs2-vod-fr.onrender.com";
 const MATCH_ENDPOINT = `${PROXY_BASE}/match/`;
 const SEARCH_ENDPOINT = `${PROXY_BASE}/search`;
+const SEARCH_TOURNAMENTS_ENDPOINT = `${PROXY_BASE}/search-tournaments`;
+const TOURNAMENT_MATCHES_ENDPOINT = `${PROXY_BASE}/tournament/`;
 
 const MOCK_MATCHES = [
   {
@@ -217,6 +219,14 @@ export default function App() {
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchError, setSearchError] = useState("");
 
+  // Import en masse d'un tournoi entier (recherche de tournoi → sélection → import)
+  const [tournamentQuery, setTournamentQuery] = useState("");
+  const [tournamentResults, setTournamentResults] = useState([]);
+  const [tournamentLoading, setTournamentLoading] = useState(false);
+  const [tournamentError, setTournamentError] = useState("");
+  const [bulkImporting, setBulkImporting] = useState(false);
+  const [bulkImportFeedback, setBulkImportFeedback] = useState("");
+
   // Load from localStorage on mount
   useEffect(() => {
     try {
@@ -250,27 +260,40 @@ export default function App() {
 
   const filteredMatches = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return matches
-      .filter((m) => {
-        const matchesQuery =
-          !q ||
-          m.teamA.toLowerCase().includes(q) ||
-          m.teamB.toLowerCase().includes(q) ||
-          m.tournament.toLowerCase().includes(q);
-        const matchesTournament = !filterTournament || m.tournament === filterTournament;
-        const matchesCaster = !filterCaster || m.caster === filterCaster;
-        return matchesQuery && matchesTournament && matchesCaster;
-      })
-      .sort((a, b) => {
-        // 1. Regroupées par tournoi (ordre alphabétique)
-        const byTournament = a.tournament.localeCompare(b.tournament, "fr");
-        if (byTournament !== 0) return byTournament;
-        // 2. Puis, à l'intérieur d'un même tournoi, du match le plus récent au plus ancien
-        const da = a.matchDate ? new Date(a.matchDate).getTime() : -Infinity;
-        const db = b.matchDate ? new Date(b.matchDate).getTime() : -Infinity;
-        return db - da;
-      });
+    return matches.filter((m) => {
+      const matchesQuery =
+        !q ||
+        m.teamA.toLowerCase().includes(q) ||
+        m.teamB.toLowerCase().includes(q) ||
+        m.tournament.toLowerCase().includes(q);
+      const matchesTournament = !filterTournament || m.tournament === filterTournament;
+      const matchesCaster = !filterCaster || m.caster === filterCaster;
+      return matchesQuery && matchesTournament && matchesCaster;
+    });
   }, [matches, search, filterTournament, filterCaster]);
+
+  // Regroupement par tournoi : les groupes sont triés chronologiquement (par la
+  // date du match le plus récent de chaque tournoi), et à l'intérieur de chaque
+  // groupe, les matchs sont eux aussi triés du plus récent au plus ancien.
+  const groupedMatches = useMemo(() => {
+    const groups = new Map();
+    for (const m of filteredMatches) {
+      const key = m.tournament || "Sans tournoi";
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(m);
+    }
+
+    const dateTime = (m) => (m.matchDate ? new Date(m.matchDate).getTime() : -Infinity);
+
+    const result = Array.from(groups.entries()).map(([tournament, list]) => {
+      const sortedList = [...list].sort((a, b) => dateTime(b) - dateTime(a));
+      const latestDate = sortedList.length ? dateTime(sortedList[0]) : -Infinity;
+      return { tournament, matches: sortedList, latestDate };
+    });
+
+    result.sort((a, b) => b.latestDate - a.latestDate);
+    return result;
+  }, [filteredMatches]);
 
   /* --- Admin actions ---------------------------------------------------- */
 
@@ -425,6 +448,100 @@ export default function App() {
     setSearchQuery("");
   }
 
+  async function searchTournaments() {
+    const q = tournamentQuery.trim();
+    if (!q) {
+      setTournamentError("Tape au moins un nom de tournoi.");
+      return;
+    }
+    setTournamentLoading(true);
+    setTournamentError("");
+    setTournamentResults([]);
+    setBulkImportFeedback("");
+    try {
+      const res = await fetch(`${SEARCH_TOURNAMENTS_ENDPOINT}?q=${encodeURIComponent(q)}`);
+      let data = null;
+      try {
+        data = await res.json();
+      } catch {
+        // corps non-JSON : on ignore
+      }
+      if (!res.ok) {
+        throw new Error(data?.error || `Le proxy a répondu avec le statut ${res.status}.`);
+      }
+      const results = Array.isArray(data?.results) ? data.results : [];
+      setTournamentResults(results);
+      if (results.length === 0) {
+        setTournamentError("Aucun tournoi trouvé pour cette recherche.");
+      }
+    } catch (err) {
+      if (err instanceof TypeError) {
+        setTournamentError(
+          `Impossible de contacter le proxy (${err.message}). Si le serveur venait de se réveiller (~30s), réessaie.`
+        );
+      } else {
+        setTournamentError(err.message || "Recherche impossible pour une raison inconnue.");
+      }
+    } finally {
+      setTournamentLoading(false);
+    }
+  }
+
+  async function importTournament(serieId, label) {
+    setBulkImporting(true);
+    setTournamentError("");
+    setBulkImportFeedback("");
+    try {
+      const res = await fetch(`${TOURNAMENT_MATCHES_ENDPOINT}${encodeURIComponent(serieId)}/matches`);
+      let data = null;
+      try {
+        data = await res.json();
+      } catch {
+        // corps non-JSON : on ignore
+      }
+      if (!res.ok) {
+        throw new Error(data?.error || `Le proxy a répondu avec le statut ${res.status}.`);
+      }
+      const results = Array.isArray(data?.results) ? data.results : [];
+
+      setMatches((prev) => {
+        const existingIds = new Set(prev.map((m) => m.pandascoreId).filter(Boolean));
+        const additions = results
+          .filter((r) => !r.pandascoreId || !existingIds.has(r.pandascoreId))
+          .map((r, i) => ({
+            ...EMPTY_FORM,
+            id: `m${Date.now()}_${i}`,
+            pandascoreId: r.pandascoreId || "",
+            matchDate: isoToDateInput(r.beginAt),
+            tournament: r.tournament || label,
+            stage: r.stage || "",
+            teamA: r.teamA || "",
+            teamB: r.teamB || "",
+            format: r.format || "BO3",
+          }));
+        setBulkImportFeedback(
+          additions.length > 0
+            ? `${additions.length} match(s) importé(s) depuis "${label}". Complète la chaîne et le lien VOD pour chacun dans la liste ci-contre.`
+            : `Tous les matchs de "${label}" étaient déjà présents dans ta liste.`
+        );
+        return [...prev, ...additions];
+      });
+
+      setTournamentResults([]);
+      setTournamentQuery("");
+    } catch (err) {
+      if (err instanceof TypeError) {
+        setTournamentError(
+          `Impossible de contacter le proxy (${err.message}). Si le serveur venait de se réveiller (~30s), réessaie.`
+        );
+      } else {
+        setTournamentError(err.message || "Import impossible pour une raison inconnue.");
+      }
+    } finally {
+      setBulkImporting(false);
+    }
+  }
+
   function exportJson() {
     const blob = new Blob([JSON.stringify(matches, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
@@ -515,7 +632,8 @@ export default function App() {
       <main className="relative mx-auto max-w-6xl px-4 py-8">
         {mode === "viewer" ? (
           <ViewerView
-            matches={filteredMatches}
+            groups={groupedMatches}
+            resultCount={filteredMatches.length}
             totalCount={matches.length}
             search={search}
             setSearch={setSearch}
@@ -542,6 +660,15 @@ export default function App() {
             searchError={searchError}
             searchPandaScore={searchPandaScore}
             useSearchResult={useSearchResult}
+            tournamentQuery={tournamentQuery}
+            setTournamentQuery={setTournamentQuery}
+            tournamentResults={tournamentResults}
+            tournamentLoading={tournamentLoading}
+            tournamentError={tournamentError}
+            searchTournaments={searchTournaments}
+            importTournament={importTournament}
+            bulkImporting={bulkImporting}
+            bulkImportFeedback={bulkImportFeedback}
             previewUrl={previewUrl}
             matches={matches}
             startEdit={startEdit}
@@ -559,7 +686,8 @@ export default function App() {
 /* --- Viewer ---------------------------------------------------------------- */
 
 function ViewerView({
-  matches,
+  groups,
+  resultCount,
   totalCount,
   search,
   setSearch,
@@ -633,13 +761,13 @@ function ViewerView({
           )}
 
           <span className="ml-auto text-xs text-slate-500">
-            {matches.length} / {totalCount} match{totalCount > 1 ? "s" : ""}
+            {resultCount} / {totalCount} match{totalCount > 1 ? "s" : ""}
           </span>
         </div>
       </div>
 
-      {/* Grid */}
-      {matches.length === 0 ? (
+      {/* Groupes par tournoi */}
+      {resultCount === 0 ? (
         <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-zinc-800 py-20 text-center">
           <Radio className="h-8 w-8 text-slate-600" />
           <p className="text-slate-400">Aucune rediffusion ne correspond à ta recherche.</p>
@@ -648,9 +776,22 @@ function ViewerView({
           </p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
-          {matches.map((m) => (
-            <MatchCard key={m.id} match={m} />
+        <div className="space-y-10">
+          {groups.map((group) => (
+            <section key={group.tournament}>
+              <h2 className="mb-4 flex items-center gap-2 border-b border-zinc-800 pb-2 text-sm font-bold uppercase tracking-wide text-slate-300">
+                <Trophy className="h-4 w-4 text-orange-400" />
+                {group.tournament}
+                <span className="ml-1 font-mono text-xs font-normal text-slate-600">
+                  ({group.matches.length})
+                </span>
+              </h2>
+              <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
+                {group.matches.map((m) => (
+                  <MatchCard key={m.id} match={m} />
+                ))}
+              </div>
+            </section>
           ))}
         </div>
       )}
@@ -760,6 +901,15 @@ function AdminView({
   searchError,
   searchPandaScore,
   useSearchResult,
+  tournamentQuery,
+  setTournamentQuery,
+  tournamentResults,
+  tournamentLoading,
+  tournamentError,
+  searchTournaments,
+  importTournament,
+  bulkImporting,
+  bulkImportFeedback,
   previewUrl,
   matches,
   startEdit,
@@ -842,6 +992,81 @@ function AdminView({
                       <span className="text-slate-500">
                         {[r.tournament, r.stage].filter(Boolean).join(" · ") || r.name}
                       </span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
+          {/* Import en masse : tous les matchs d'un tournoi */}
+          <div className="mb-6 rounded-lg border border-zinc-800 bg-zinc-950/60 p-4">
+            <label className="mb-2 block text-xs font-semibold uppercase tracking-wide text-slate-400">
+              Importer tout un tournoi
+            </label>
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <input
+                value={tournamentQuery}
+                onChange={(e) => setTournamentQuery(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), searchTournaments())}
+                placeholder="ex: IEM Katowice 2026"
+                className="flex-1 rounded-md border border-zinc-800 bg-zinc-900 px-3 py-2 text-sm text-slate-100 outline-none focus:border-blue-500"
+              />
+              <button
+                type="button"
+                onClick={searchTournaments}
+                disabled={tournamentLoading}
+                className="flex items-center justify-center gap-2 rounded-md bg-orange-500 px-4 py-2 text-sm font-bold text-slate-950 transition-colors hover:bg-orange-400 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {tournamentLoading ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Trophy className="h-4 w-4" />
+                )}
+                Chercher le tournoi
+              </button>
+            </div>
+            {(tournamentLoading || bulkImporting) && (
+              <p className="mt-2 flex items-center gap-1.5 text-xs text-orange-300">
+                <Loader2 className="h-3 w-3 animate-spin" />
+                {bulkImporting
+                  ? "Import de tous les matchs du tournoi en cours…"
+                  : "Recherche en cours (le serveur gratuit Render peut mettre ~30s à sortir de veille)…"}
+              </p>
+            )}
+            {tournamentError && (
+              <p className="mt-2 flex items-start gap-1.5 text-xs text-red-400">
+                <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
+                {tournamentError}
+              </p>
+            )}
+            {bulkImportFeedback && (
+              <p className="mt-2 flex items-start gap-1.5 text-xs text-emerald-400">
+                <Check className="mt-0.5 h-3 w-3 shrink-0" />
+                {bulkImportFeedback}
+              </p>
+            )}
+            {tournamentResults.length > 0 && (
+              <ul className="mt-3 divide-y divide-zinc-800 overflow-hidden rounded-md border border-zinc-800">
+                {tournamentResults.map((t) => (
+                  <li
+                    key={t.serieId}
+                    className="flex items-center justify-between gap-2 bg-zinc-900 px-3 py-2 text-xs"
+                  >
+                    <div className="min-w-0">
+                      <p className="truncate font-semibold text-slate-200">{t.label}</p>
+                      {t.beginAt && (
+                        <p className="text-slate-500">{formatDateFr(isoToDateInput(t.beginAt))}</p>
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => importTournament(t.serieId, t.label)}
+                      disabled={bulkImporting}
+                      className="flex shrink-0 items-center gap-1.5 rounded-md bg-blue-500 px-2.5 py-1.5 text-[11px] font-bold text-slate-950 transition-colors hover:bg-blue-400 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      <Download className="h-3 w-3" />
+                      Importer tous les matchs
                     </button>
                   </li>
                 ))}
