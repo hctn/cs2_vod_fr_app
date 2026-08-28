@@ -19,6 +19,7 @@ import {
   AlertTriangle,
   Link2,
   Calendar,
+  Image as ImageIcon,
 } from "lucide-react";
 
 /* ============================================================================
@@ -26,6 +27,12 @@ import {
    Un seul fichier, prêt à intégrer dans un projet React + Tailwind + lucide-react.
    Persistance locale via localStorage. Import optionnel des métadonnées de
    match depuis un proxy PandaScore (https://cs2-vod-fr.onrender.com).
+
+   Logos d'équipes : le proxy PandaScore renvoie désormais teamALogo /
+   teamBLogo (URL du logo, champ "image_url" de PandaScore) en plus des noms.
+   Ces URLs sont stockées telles quelles sur chaque match et affichées dans
+   TeamBlock, avec repli automatique sur l'initiale de l'équipe si l'URL est
+   absente ou si l'image ne charge pas (onError).
    ============================================================================ */
 
 const STORAGE_KEY = "cs2vodfr_matches";
@@ -43,7 +50,9 @@ const MOCK_MATCHES = [
     tournament: "IEM Katowice 2026",
     stage: "Quart de finale",
     teamA: "Vitality",
+    teamALogo: "",
     teamB: "MOUZ",
+    teamBLogo: "",
     format: "BO3",
     caster: "KRL",
     platform: "twitch",
@@ -59,7 +68,9 @@ const MOCK_MATCHES = [
     tournament: "Blast Premier Fall 2026",
     stage: "Demi-finale",
     teamA: "Natus Vincere",
+    teamALogo: "",
     teamB: "Team Spirit",
+    teamBLogo: "",
     format: "BO3",
     caster: "Croissant Strike",
     platform: "youtube",
@@ -75,7 +86,9 @@ const MOCK_MATCHES = [
     tournament: "ESL Pro League S20",
     stage: "Poules",
     teamA: "G2",
+    teamALogo: "",
     teamB: "FaZe",
+    teamBLogo: "",
     format: "BO1",
     caster: "MGG",
     platform: "twitch",
@@ -91,7 +104,9 @@ const MOCK_MATCHES = [
     tournament: "IEM Katowice 2026",
     stage: "Finale",
     teamA: "Astralis",
+    teamALogo: "",
     teamB: "Heroic",
+    teamBLogo: "",
     format: "BO5",
     caster: "VaKarM",
     platform: "youtube",
@@ -109,7 +124,9 @@ const EMPTY_FORM = {
   tournament: "",
   stage: "",
   teamA: "",
+  teamALogo: "",
   teamB: "",
+  teamBLogo: "",
   format: "BO3",
   caster: "",
   platform: "twitch",
@@ -165,11 +182,14 @@ function casterBadgeClass(caster) {
 }
 
 function normalizePandaScorePayload(data) {
-  // Forme exacte renvoyée par index.js (simplifyMatch) : teamA, teamB,
-  // tournament, stage, format sont déjà des chaînes prêtes à l'emploi.
+  // Forme exacte renvoyée par index.js (extractMatchFields) : teamA, teamB,
+  // teamALogo, teamBLogo, tournament, stage, format sont déjà des valeurs
+  // prêtes à l'emploi.
   return {
     teamA: data?.teamA ?? "",
+    teamALogo: data?.teamALogo ?? "",
     teamB: data?.teamB ?? "",
+    teamBLogo: data?.teamBLogo ?? "",
     tournament: data?.tournament ?? "",
     stage: data?.stage ?? "",
     format: data?.format || "BO3",
@@ -307,7 +327,7 @@ export default function App() {
   }
 
   function startEdit(match) {
-    setForm({ ...match });
+    setForm({ ...form, ...EMPTY_FORM, ...match });
     setMode("admin");
     setPandaError("");
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -365,7 +385,9 @@ export default function App() {
         ...f,
         pandascoreId: normalized.pandascoreId || target,
         teamA: normalized.teamA || f.teamA,
+        teamALogo: normalized.teamALogo || f.teamALogo,
         teamB: normalized.teamB || f.teamB,
+        teamBLogo: normalized.teamBLogo || f.teamBLogo,
         tournament: normalized.tournament || f.tournament,
         stage: normalized.stage || f.stage,
         format: normalized.format || f.format,
@@ -438,7 +460,9 @@ export default function App() {
       ...f,
       pandascoreId: result.pandascoreId != null ? String(result.pandascoreId) : "",
       teamA: result.teamA || f.teamA,
+      teamALogo: result.teamALogo || f.teamALogo,
       teamB: result.teamB || f.teamB,
+      teamBLogo: result.teamBLogo || f.teamBLogo,
       tournament: result.tournament || f.tournament,
       stage: result.stage || f.stage,
       format: result.format || f.format,
@@ -516,7 +540,9 @@ export default function App() {
             tournament: r.tournament || label,
             stage: r.stage || "",
             teamA: r.teamA || "",
+            teamALogo: r.teamALogo || "",
             teamB: r.teamB || "",
+            teamBLogo: r.teamBLogo || "",
             format: r.format || "BO3",
           }));
         setBulkImportFeedback(
@@ -830,9 +856,9 @@ function MatchCard({ match }) {
 
         {/* Teams */}
         <div className="flex items-center justify-between gap-2">
-          <TeamBlock name={match.teamA} />
+          <TeamBlock name={match.teamA} logo={match.teamALogo} />
           <span className="shrink-0 font-mono text-sm font-bold text-slate-600">VS</span>
-          <TeamBlock name={match.teamB} align="right" />
+          <TeamBlock name={match.teamB} logo={match.teamBLogo} align="right" />
         </div>
 
         {/* Meta row */}
@@ -872,13 +898,29 @@ function MatchCard({ match }) {
   );
 }
 
-function TeamBlock({ name, align = "left" }) {
+// Affiche le logo de l'équipe (URL PandaScore ou saisie manuelle). En cas
+// d'URL manquante ou d'échec de chargement (onError), on retombe sur un
+// rond avec l'initiale de l'équipe — jamais d'icône cassée à l'écran.
+function TeamBlock({ name, logo, align = "left" }) {
+  const [imgFailed, setImgFailed] = useState(false);
   const initial = (name || "?").trim().charAt(0).toUpperCase();
+  const showLogo = Boolean(logo) && !imgFailed;
+
   return (
     <div className={`flex min-w-0 flex-1 items-center gap-2 ${align === "right" ? "flex-row-reverse text-right" : ""}`}>
-      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-zinc-800 font-mono text-sm font-bold text-slate-300">
-        {initial}
-      </div>
+      {showLogo ? (
+        <img
+          src={logo}
+          alt={name ? `Logo ${name}` : "Logo équipe"}
+          onError={() => setImgFailed(true)}
+          className="h-8 w-8 shrink-0 rounded-full bg-zinc-800 object-contain p-0.5"
+          loading="lazy"
+        />
+      ) : (
+        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-zinc-800 font-mono text-sm font-bold text-slate-300">
+          {initial}
+        </div>
+      )}
       <span className="truncate text-sm font-bold text-slate-100">{name}</span>
     </div>
   );
@@ -978,19 +1020,22 @@ function AdminView({
                     <button
                       type="button"
                       onClick={() => useSearchResult(r)}
-                      className="flex w-full flex-col gap-0.5 bg-zinc-900 px-3 py-2 text-left text-xs transition-colors hover:bg-zinc-800"
+                      className="flex w-full items-center gap-2 bg-zinc-900 px-3 py-2 text-left text-xs transition-colors hover:bg-zinc-800"
                     >
-                      <span className="font-semibold text-slate-200">
-                        {r.teamA || "?"} <span className="text-slate-600">vs</span>{" "}
-                        {r.teamB || "?"}
-                        {r.beginAt && (
-                          <span className="ml-2 font-mono text-[10px] font-normal text-slate-500">
-                            {formatDateFr(isoToDateInput(r.beginAt))}
-                          </span>
-                        )}
-                      </span>
-                      <span className="text-slate-500">
-                        {[r.tournament, r.stage].filter(Boolean).join(" · ") || r.name}
+                      <SearchResultLogos teamALogo={r.teamALogo} teamBLogo={r.teamBLogo} />
+                      <span className="flex min-w-0 flex-col gap-0.5">
+                        <span className="font-semibold text-slate-200">
+                          {r.teamA || "?"} <span className="text-slate-600">vs</span>{" "}
+                          {r.teamB || "?"}
+                          {r.beginAt && (
+                            <span className="ml-2 font-mono text-[10px] font-normal text-slate-500">
+                              {formatDateFr(isoToDateInput(r.beginAt))}
+                            </span>
+                          )}
+                        </span>
+                        <span className="truncate text-slate-500">
+                          {[r.tournament, r.stage].filter(Boolean).join(" · ") || r.name}
+                        </span>
                       </span>
                     </button>
                   </li>
@@ -1142,24 +1187,6 @@ function AdminView({
                   className="input"
                 />
               </Field>
-              <Field label="Équipe A *">
-                <input
-                  required
-                  value={form.teamA}
-                  onChange={(e) => updateForm("teamA", e.target.value)}
-                  placeholder="ex: Vitality"
-                  className="input"
-                />
-              </Field>
-              <Field label="Équipe B *">
-                <input
-                  required
-                  value={form.teamB}
-                  onChange={(e) => updateForm("teamB", e.target.value)}
-                  placeholder="ex: MOUZ"
-                  className="input"
-                />
-              </Field>
               <Field label="Format">
                 <select
                   value={form.format}
@@ -1170,6 +1197,46 @@ function AdminView({
                   <option value="BO3">BO3</option>
                   <option value="BO5">BO5</option>
                 </select>
+              </Field>
+              <Field label="Équipe A *">
+                <input
+                  required
+                  value={form.teamA}
+                  onChange={(e) => updateForm("teamA", e.target.value)}
+                  placeholder="ex: Vitality"
+                  className="input"
+                />
+              </Field>
+              <Field label="Logo équipe A (URL)">
+                <div className="flex items-center gap-2">
+                  <LogoPreview url={form.teamALogo} />
+                  <input
+                    value={form.teamALogo}
+                    onChange={(e) => updateForm("teamALogo", e.target.value)}
+                    placeholder="https://…/logo.png (auto si importé)"
+                    className="input font-mono text-xs"
+                  />
+                </div>
+              </Field>
+              <Field label="Équipe B *">
+                <input
+                  required
+                  value={form.teamB}
+                  onChange={(e) => updateForm("teamB", e.target.value)}
+                  placeholder="ex: MOUZ"
+                  className="input"
+                />
+              </Field>
+              <Field label="Logo équipe B (URL)">
+                <div className="flex items-center gap-2">
+                  <LogoPreview url={form.teamBLogo} />
+                  <input
+                    value={form.teamBLogo}
+                    onChange={(e) => updateForm("teamBLogo", e.target.value)}
+                    placeholder="https://…/logo.png (auto si importé)"
+                    className="input font-mono text-xs"
+                  />
+                </div>
               </Field>
               <Field label="Chaîne / Caster">
                 <input
@@ -1348,6 +1415,62 @@ function AdminView({
         }
       `}</style>
     </div>
+  );
+}
+
+// Petite pastille d'aperçu à côté du champ "Logo équipe (URL)" dans le
+// formulaire admin. Repli sur une icône image grisée si l'URL est vide ou
+// invalide.
+function LogoPreview({ url }) {
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    setFailed(false);
+  }, [url]);
+
+  const showLogo = Boolean(url) && !failed;
+
+  return (
+    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-zinc-800 bg-zinc-900">
+      {showLogo ? (
+        <img
+          src={url}
+          alt="Aperçu du logo"
+          onError={() => setFailed(true)}
+          className="h-full w-full rounded-md object-contain p-0.5"
+        />
+      ) : (
+        <ImageIcon className="h-4 w-4 text-slate-600" />
+      )}
+    </div>
+  );
+}
+
+// Mini-logos côte à côte dans un résultat de recherche PandaScore (liste
+// "Rechercher un match sur PandaScore"). Purement décoratif ; pas de repli
+// visible si absent (juste rien à cet endroit).
+function SearchResultLogos({ teamALogo, teamBLogo }) {
+  if (!teamALogo && !teamBLogo) return null;
+  return (
+    <span className="flex shrink-0 items-center -space-x-1.5">
+      <MiniLogo url={teamALogo} />
+      <MiniLogo url={teamBLogo} />
+    </span>
+  );
+}
+
+function MiniLogo({ url }) {
+  const [failed, setFailed] = useState(false);
+  if (!url || failed) {
+    return <span className="h-5 w-5 rounded-full border border-zinc-800 bg-zinc-800" />;
+  }
+  return (
+    <img
+      src={url}
+      alt=""
+      onError={() => setFailed(true)}
+      className="h-5 w-5 rounded-full border border-zinc-900 bg-zinc-800 object-contain"
+    />
   );
 }
 
