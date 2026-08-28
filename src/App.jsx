@@ -19,7 +19,6 @@ import {
   AlertTriangle,
   Link2,
   Calendar,
-  Clock,
 } from "lucide-react";
 
 /* ============================================================================
@@ -41,11 +40,12 @@ const MOCK_MATCHES = [
     id: "m1",
     pandascoreId: "2374829",
     matchDate: "2026-02-14",
-    matchTime: "17:00",
     tournament: "IEM Katowice 2026",
     stage: "Quart de finale",
     teamA: "Vitality",
     teamB: "MOUZ",
+    teamALogo: "",
+    teamBLogo: "",
     format: "BO3",
     caster: "KRL",
     platform: "twitch",
@@ -58,11 +58,12 @@ const MOCK_MATCHES = [
     id: "m2",
     pandascoreId: "2374855",
     matchDate: "2026-03-22",
-    matchTime: "20:00",
     tournament: "Blast Premier Fall 2026",
     stage: "Demi-finale",
     teamA: "Natus Vincere",
     teamB: "Team Spirit",
+    teamALogo: "",
+    teamBLogo: "",
     format: "BO3",
     caster: "Croissant Strike",
     platform: "youtube",
@@ -75,11 +76,12 @@ const MOCK_MATCHES = [
     id: "m3",
     pandascoreId: "2374701",
     matchDate: "2026-01-30",
-    matchTime: "14:00",
     tournament: "ESL Pro League S20",
     stage: "Poules",
     teamA: "G2",
     teamB: "FaZe",
+    teamALogo: "",
+    teamBLogo: "",
     format: "BO1",
     caster: "MGG",
     platform: "twitch",
@@ -91,12 +93,13 @@ const MOCK_MATCHES = [
   {
     id: "m4",
     pandascoreId: "2374912",
-    matchDate: "2026-02-14",
-    matchTime: "20:30",
+    matchDate: "2026-02-16",
     tournament: "IEM Katowice 2026",
     stage: "Finale",
     teamA: "Astralis",
     teamB: "Heroic",
+    teamALogo: "",
+    teamBLogo: "",
     format: "BO5",
     caster: "VaKarM",
     platform: "youtube",
@@ -111,11 +114,12 @@ const EMPTY_FORM = {
   id: null,
   pandascoreId: "",
   matchDate: "",
-  matchTime: "",
   tournament: "",
   stage: "",
   teamA: "",
   teamB: "",
+  teamALogo: "",
+  teamBLogo: "",
   format: "BO3",
   caster: "",
   platform: "twitch",
@@ -176,12 +180,13 @@ function normalizePandaScorePayload(data) {
   return {
     teamA: data?.teamA ?? "",
     teamB: data?.teamB ?? "",
+    teamALogo: data?.teamALogo ?? "",
+    teamBLogo: data?.teamBLogo ?? "",
     tournament: data?.tournament ?? "",
     stage: data?.stage ?? "",
     format: data?.format || "BO3",
     pandascoreId: data?.pandascoreId != null ? String(data.pandascoreId) : "",
     matchDate: isoToDateInput(data?.beginAt),
-    matchTime: isoToTimeInput(data?.beginAt),
   };
 }
 
@@ -192,29 +197,6 @@ function isoToDateInput(iso) {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "";
   return d.toISOString().slice(0, 10);
-}
-
-// Convertit une date ISO en valeur pour <input type="time"> ("HH:MM"), en UTC
-// (cohérent avec isoToDateInput qui lit aussi la date en UTC). Utilisée comme
-// heure de début "réelle" du match, indépendante du timecode de la VOD.
-function isoToTimeInput(iso) {
-  if (!iso) return "";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "";
-  return d.toISOString().slice(11, 16);
-}
-
-// Convertit "HH:MM" en nombre de minutes depuis minuit, pour pouvoir trier.
-// Renvoie null si l'heure est absente/invalide (les matchs sans heure connue
-// sont alors placés en dernier au sein de leur journée).
-function timeToMinutes(timeStr) {
-  if (!timeStr) return null;
-  const parts = timeStr.split(":");
-  if (parts.length < 2) return null;
-  const hh = Number(parts[0]);
-  const mm = Number(parts[1]);
-  if (Number.isNaN(hh) || Number.isNaN(mm)) return null;
-  return hh * 60 + mm;
 }
 
 function formatDateFr(dateStr) {
@@ -304,10 +286,7 @@ export default function App() {
 
   // Regroupement par tournoi : les groupes sont triés chronologiquement (par la
   // date du match le plus récent de chaque tournoi), et à l'intérieur de chaque
-  // groupe, les matchs sont triés du plus récent au plus ancien (date), puis,
-  // à date égale, par heure de début croissante (le match joué le plus tôt dans
-  // la journée apparaît en premier). Les matchs sans heure connue sont relégués
-  // en fin de journée plutôt que de casser le tri.
+  // groupe, les matchs sont eux aussi triés du plus récent au plus ancien.
   const groupedMatches = useMemo(() => {
     const groups = new Map();
     for (const m of filteredMatches) {
@@ -318,20 +297,8 @@ export default function App() {
 
     const dateTime = (m) => (m.matchDate ? new Date(m.matchDate).getTime() : -Infinity);
 
-    const compareMatches = (a, b) => {
-      const dateDiff = dateTime(b) - dateTime(a);
-      if (dateDiff !== 0) return dateDiff;
-
-      const ta = timeToMinutes(a.matchTime);
-      const tb = timeToMinutes(b.matchTime);
-      if (ta == null && tb == null) return 0;
-      if (ta == null) return 1; // heure inconnue → après les matchs datés
-      if (tb == null) return -1;
-      return ta - tb;
-    };
-
     const result = Array.from(groups.entries()).map(([tournament, list]) => {
-      const sortedList = [...list].sort(compareMatches);
+      const sortedList = [...list].sort((a, b) => dateTime(b) - dateTime(a));
       const latestDate = sortedList.length ? dateTime(sortedList[0]) : -Infinity;
       return { tournament, matches: sortedList, latestDate };
     });
@@ -411,11 +378,12 @@ export default function App() {
         pandascoreId: normalized.pandascoreId || target,
         teamA: normalized.teamA || f.teamA,
         teamB: normalized.teamB || f.teamB,
+        teamALogo: normalized.teamALogo || f.teamALogo,
+        teamBLogo: normalized.teamBLogo || f.teamBLogo,
         tournament: normalized.tournament || f.tournament,
         stage: normalized.stage || f.stage,
         format: normalized.format || f.format,
         matchDate: normalized.matchDate || f.matchDate,
-        matchTime: normalized.matchTime || f.matchTime,
       }));
       setSearchResults([]);
     } catch (err) {
@@ -485,11 +453,12 @@ export default function App() {
       pandascoreId: result.pandascoreId != null ? String(result.pandascoreId) : "",
       teamA: result.teamA || f.teamA,
       teamB: result.teamB || f.teamB,
+      teamALogo: result.teamALogo || f.teamALogo,
+      teamBLogo: result.teamBLogo || f.teamBLogo,
       tournament: result.tournament || f.tournament,
       stage: result.stage || f.stage,
       format: result.format || f.format,
       matchDate: isoToDateInput(result.beginAt) || f.matchDate,
-      matchTime: isoToTimeInput(result.beginAt) || f.matchTime,
     }));
     setSearchResults([]);
     setSearchQuery("");
@@ -560,11 +529,12 @@ export default function App() {
             id: `m${Date.now()}_${i}`,
             pandascoreId: r.pandascoreId || "",
             matchDate: isoToDateInput(r.beginAt),
-            matchTime: isoToTimeInput(r.beginAt),
             tournament: r.tournament || label,
             stage: r.stage || "",
             teamA: r.teamA || "",
             teamB: r.teamB || "",
+            teamALogo: r.teamALogo || "",
+            teamBLogo: r.teamBLogo || "",
             format: r.format || "BO3",
           }));
         setBulkImportFeedback(
@@ -858,42 +828,31 @@ function MatchCard({ match }) {
       <div className="h-1 w-full bg-gradient-to-r from-blue-500 to-orange-500" />
 
       <div className="flex flex-1 flex-col gap-4 p-5">
-        {/* Tournament / stage */}
-        <div className="flex items-center gap-2 text-xs">
-          <Trophy className="h-3.5 w-3.5 shrink-0 text-orange-400" />
-          <span className="truncate font-semibold text-slate-300">{match.tournament}</span>
-          {match.stage && (
-            <>
-              <span className="text-slate-600">·</span>
-              <span className="shrink-0 text-slate-500">{match.stage}</span>
-            </>
-          )}
-          {(match.matchDate || match.matchTime) && (
-            <span className="ml-auto flex shrink-0 items-center gap-2 text-slate-500">
-              {match.matchDate && (
-                <span className="flex items-center gap-1">
-                  <Calendar className="h-3 w-3" />
-                  {formatDateFr(match.matchDate)}
-                </span>
-              )}
-              {match.matchTime && (
-                <span className="flex items-center gap-1 font-mono">
-                  <Clock className="h-3 w-3" />
-                  {match.matchTime}
-                </span>
-              )}
-            </span>
-          )}
-        </div>
+        {/* Stage + date (le nom du tournoi est déjà affiché en titre de
+            section ; seule la date est affichée, jamais l'heure) */}
+        {(match.stage || match.matchDate) && (
+          <div className="flex items-center gap-2 text-xs">
+            {match.stage && (
+              <span className="truncate font-semibold text-slate-400">{match.stage}</span>
+            )}
+            {match.matchDate && (
+              <span className="ml-auto flex shrink-0 items-center gap-1 text-slate-500">
+                <Calendar className="h-3 w-3" />
+                {formatDateFr(match.matchDate)}
+              </span>
+            )}
+          </div>
+        )}
 
         {/* Teams */}
         <div className="flex items-center justify-between gap-2">
-          <TeamBlock name={match.teamA} />
+          <TeamBlock name={match.teamA} logo={match.teamALogo} />
           <span className="shrink-0 font-mono text-sm font-bold text-slate-600">VS</span>
-          <TeamBlock name={match.teamB} align="right" />
+          <TeamBlock name={match.teamB} logo={match.teamBLogo} align="right" />
         </div>
 
-        {/* Meta row */}
+        {/* Meta row (le timecode de la VOD n'est pas affiché sur la carte,
+            seule l'icône de plateforme reste visible) */}
         <div className="flex flex-wrap items-center gap-2">
           <span className="rounded border border-zinc-700 bg-zinc-800 px-2 py-0.5 font-mono text-[11px] font-bold text-slate-300">
             {match.format}
@@ -905,13 +864,12 @@ function MatchCard({ match }) {
           >
             {match.caster}
           </span>
-          <span className="ml-auto flex items-center gap-1 font-mono text-[11px] text-slate-500">
+          <span className="ml-auto flex items-center gap-1 text-slate-500">
             {match.platform === "twitch" ? (
-              <Twitch className="h-3 w-3 text-violet-400" />
+              <Twitch className="h-3.5 w-3.5 text-violet-400" />
             ) : (
-              <Youtube className="h-3 w-3 text-red-500" />
+              <Youtube className="h-3.5 w-3.5 text-red-500" />
             )}
-            {formatHMS(match.h, match.m, match.s)}
           </span>
         </div>
 
@@ -930,13 +888,24 @@ function MatchCard({ match }) {
   );
 }
 
-function TeamBlock({ name, align = "left" }) {
+function TeamBlock({ name, logo, align = "left" }) {
   const initial = (name || "?").trim().charAt(0).toUpperCase();
   return (
     <div className={`flex min-w-0 flex-1 items-center gap-2 ${align === "right" ? "flex-row-reverse text-right" : ""}`}>
-      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-zinc-800 font-mono text-sm font-bold text-slate-300">
-        {initial}
-      </div>
+      {logo ? (
+        <img
+          src={logo}
+          alt={name}
+          className="h-8 w-8 shrink-0 object-contain"
+          onError={(e) => {
+            e.currentTarget.style.display = "none";
+          }}
+        />
+      ) : (
+        <div className="flex h-8 w-8 shrink-0 items-center justify-center font-mono text-sm font-bold text-slate-300">
+          {initial}
+        </div>
+      )}
       <span className="truncate text-sm font-bold text-slate-100">{name}</span>
     </div>
   );
@@ -1043,7 +1012,7 @@ function AdminView({
                         {r.teamB || "?"}
                         {r.beginAt && (
                           <span className="ml-2 font-mono text-[10px] font-normal text-slate-500">
-                            {formatDateFr(isoToDateInput(r.beginAt))} · {isoToTimeInput(r.beginAt)}
+                            {formatDateFr(isoToDateInput(r.beginAt))}
                           </span>
                         )}
                       </span>
@@ -1184,14 +1153,6 @@ function AdminView({
                   className="input"
                 />
               </Field>
-              <Field label="Stage / Étape">
-                <input
-                  value={form.stage}
-                  onChange={(e) => updateForm("stage", e.target.value)}
-                  placeholder="ex: Quart de finale"
-                  className="input"
-                />
-              </Field>
               <Field label="Date du match">
                 <input
                   type="date"
@@ -1200,12 +1161,12 @@ function AdminView({
                   className="input"
                 />
               </Field>
-              <Field label="Heure de début du match">
+              <Field label="Stage / Étape">
                 <input
-                  type="time"
-                  value={form.matchTime}
-                  onChange={(e) => updateForm("matchTime", e.target.value)}
-                  className="input font-mono"
+                  value={form.stage}
+                  onChange={(e) => updateForm("stage", e.target.value)}
+                  placeholder="ex: Quart de finale"
+                  className="input"
                 />
               </Field>
               <Field label="Équipe A *">
@@ -1217,6 +1178,14 @@ function AdminView({
                   className="input"
                 />
               </Field>
+              <Field label="Logo équipe A (URL)">
+                <input
+                  value={form.teamALogo}
+                  onChange={(e) => updateForm("teamALogo", e.target.value)}
+                  placeholder="https://…/vitality.png"
+                  className="input font-mono text-xs"
+                />
+              </Field>
               <Field label="Équipe B *">
                 <input
                   required
@@ -1224,6 +1193,14 @@ function AdminView({
                   onChange={(e) => updateForm("teamB", e.target.value)}
                   placeholder="ex: MOUZ"
                   className="input"
+                />
+              </Field>
+              <Field label="Logo équipe B (URL)">
+                <input
+                  value={form.teamBLogo}
+                  onChange={(e) => updateForm("teamBLogo", e.target.value)}
+                  placeholder="https://…/mouz.png"
+                  className="input font-mono text-xs"
                 />
               </Field>
               <Field label="Format">
@@ -1295,10 +1272,6 @@ function AdminView({
                   = {formatHMS(form.h, form.m, form.s)}
                 </span>
               </div>
-              <p className="mt-1.5 text-[11px] text-slate-600">
-                Instant de la VOD où démarre le match (différent de « Heure de début du match »,
-                qui sert à trier plusieurs matchs joués le même jour).
-              </p>
             </Field>
 
             {/* Live preview */}
@@ -1372,7 +1345,6 @@ function AdminView({
                 </p>
                 <p className="truncate text-xs text-slate-500">
                   {m.tournament} · {m.caster}
-                  {m.matchTime && <span className="font-mono"> · {m.matchTime}</span>}
                 </p>
               </div>
               <div className="flex shrink-0 items-center gap-1">
