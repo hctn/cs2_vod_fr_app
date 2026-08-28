@@ -18,6 +18,7 @@ import {
   Filter,
   AlertTriangle,
   Link2,
+  Calendar,
 } from "lucide-react";
 
 /* ============================================================================
@@ -827,11 +828,19 @@ function MatchCard({ match }) {
       <div className="h-1 w-full bg-gradient-to-r from-blue-500 to-orange-500" />
 
       <div className="flex flex-1 flex-col gap-4 p-5">
-        {/* Stage (le nom du tournoi est déjà affiché en titre de section, la
-            date/heure de début de match n'est pas affichée sur la carte) */}
-        {match.stage && (
+        {/* Stage + date (le nom du tournoi est déjà affiché en titre de
+            section ; seule la date est affichée, jamais l'heure) */}
+        {(match.stage || match.matchDate) && (
           <div className="flex items-center gap-2 text-xs">
-            <span className="truncate font-semibold text-slate-400">{match.stage}</span>
+            {match.stage && (
+              <span className="truncate font-semibold text-slate-400">{match.stage}</span>
+            )}
+            {match.matchDate && (
+              <span className="ml-auto flex shrink-0 items-center gap-1 text-slate-500">
+                <Calendar className="h-3 w-3" />
+                {formatDateFr(match.matchDate)}
+              </span>
+            )}
           </div>
         )}
 
