@@ -386,7 +386,7 @@ export default function App() {
 
   function saveMatch(e) {
     e.preventDefault();
-    if (!form.teamA || !form.teamB || !form.vodUrl || !form.tournament) return;
+    if (!form.teamA || !form.teamB || !form.tournament) return;
 
     if (form.id) {
       setMatches((prev) => prev.map((m) => (m.id === form.id ? { ...form } : m)));
@@ -1364,9 +1364,8 @@ function AdminView({
                   />
                 </div>
               </Field>
-              <Field label="URL de la VOD *">
+              <Field label="URL de la VOD (optionnel)">
                 <input
-                  required
                   value={form.vodUrl}
                   onChange={(e) => updateForm("vodUrl", e.target.value)}
                   placeholder="https://www.twitch.tv/videos/123456789"
