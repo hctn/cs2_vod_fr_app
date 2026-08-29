@@ -860,7 +860,7 @@ function ViewerView({
                   <img
                     src={group.tournamentLogo}
                     alt=""
-                    className="h-11 w-11 shrink-0 rounded-md bg-slate-100 object-contain p-1.5"
+                    className="h-16 w-16 shrink-0 rounded-md bg-slate-100 object-contain p-2"
                     onError={(e) => {
                       e.currentTarget.style.display = "none";
                     }}
@@ -926,13 +926,15 @@ function MatchCard({ match }) {
           <span className="rounded border border-zinc-600 bg-zinc-900 px-2 py-0.5 font-mono text-[11px] font-bold text-slate-300">
             {match.format}
           </span>
-          <span
-            className={`rounded border px-2 py-0.5 text-[11px] font-semibold ${casterBadgeClass(
-              match.caster
-            )}`}
-          >
-            {match.caster}
-          </span>
+          {match.caster && (
+            <span
+              className={`rounded border px-2 py-0.5 text-[11px] font-semibold ${casterBadgeClass(
+                match.caster
+              )}`}
+            >
+              {match.caster}
+            </span>
+          )}
           <span className="ml-auto flex items-center gap-1 text-slate-500">
             {match.platform === "twitch" ? (
               <Twitch className="h-3.5 w-3.5 text-violet-400" />
@@ -942,21 +944,23 @@ function MatchCard({ match }) {
           </span>
         </div>
 
-        {/* CTA(s) */}
-        <div className="mt-auto flex flex-col gap-2">
+        {/* CTA(s) : rediffusion + résumé côte à côte, chacun se partage la largeur
+            disponible (flex-1) — si un seul des deux est présent, il occupe
+            alors toute la largeur. */}
+        <div className="mt-auto flex items-stretch gap-2">
           {hasVod ? (
             <a
               href={finalUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="flex items-center justify-center gap-2 bg-blue-500 py-2.5 text-sm font-bold uppercase tracking-wide text-slate-950 transition-colors hover:bg-blue-400"
+              className="flex flex-1 items-center justify-center gap-2 bg-blue-500 px-2 py-2.5 text-sm font-bold uppercase tracking-wide text-slate-950 transition-colors hover:bg-blue-400"
             >
-              <PlayCircle className="h-4 w-4" />
+              <PlayCircle className="h-4 w-4 shrink-0" />
               Regarder la rediffusion
             </a>
           ) : (
-            <div className="flex cursor-not-allowed items-center justify-center gap-2 bg-zinc-700 py-2.5 text-sm font-bold uppercase tracking-wide text-slate-400">
-              <Radio className="h-4 w-4" />
+            <div className="flex flex-1 cursor-not-allowed items-center justify-center gap-2 bg-zinc-700 px-2 py-2.5 text-sm font-bold uppercase tracking-wide text-slate-400">
+              <Radio className="h-4 w-4 shrink-0" />
               Rediffusion à venir
             </div>
           )}
@@ -966,9 +970,9 @@ function MatchCard({ match }) {
               href={match.summaryUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="flex items-center justify-center gap-2 border border-zinc-600 py-2 text-xs font-bold uppercase tracking-wide text-slate-300 transition-colors hover:border-blue-500 hover:text-blue-300"
+              className="flex flex-1 items-center justify-center gap-2 border border-zinc-600 px-2 py-2 text-xs font-bold uppercase tracking-wide text-slate-300 transition-colors hover:border-blue-500 hover:text-blue-300"
             >
-              <PlayCircle className="h-3.5 w-3.5" />
+              <PlayCircle className="h-3.5 w-3.5 shrink-0" />
               Regarder le résumé
             </a>
           )}
