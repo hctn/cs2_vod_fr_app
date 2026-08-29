@@ -944,23 +944,21 @@ function MatchCard({ match }) {
           </span>
         </div>
 
-        {/* CTA(s) : rediffusion + résumé côte à côte, chacun se partage la largeur
-            disponible (flex-1) — si un seul des deux est présent, il occupe
-            alors toute la largeur. */}
-        <div className="mt-auto flex items-stretch gap-2">
+        {/* CTA(s) */}
+        <div className="mt-auto flex flex-col gap-2">
           {hasVod ? (
             <a
               href={finalUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="flex flex-1 items-center justify-center gap-2 bg-blue-500 px-2 py-2.5 text-sm font-bold uppercase tracking-wide text-slate-950 transition-colors hover:bg-blue-400"
+              className="flex items-center justify-center gap-2 bg-blue-500 py-2.5 text-sm font-bold uppercase tracking-wide text-slate-950 transition-colors hover:bg-blue-400"
             >
-              <PlayCircle className="h-4 w-4 shrink-0" />
+              <PlayCircle className="h-4 w-4" />
               Regarder la rediffusion
             </a>
           ) : (
-            <div className="flex flex-1 cursor-not-allowed items-center justify-center gap-2 bg-zinc-700 px-2 py-2.5 text-sm font-bold uppercase tracking-wide text-slate-400">
-              <Radio className="h-4 w-4 shrink-0" />
+            <div className="flex cursor-not-allowed items-center justify-center gap-2 bg-zinc-700 py-2.5 text-sm font-bold uppercase tracking-wide text-slate-400">
+              <Radio className="h-4 w-4" />
               Rediffusion à venir
             </div>
           )}
@@ -970,9 +968,9 @@ function MatchCard({ match }) {
               href={match.summaryUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="flex flex-1 items-center justify-center gap-2 border border-zinc-600 px-2 py-2 text-xs font-bold uppercase tracking-wide text-slate-300 transition-colors hover:border-blue-500 hover:text-blue-300"
+              className="flex items-center justify-center gap-2 border border-zinc-600 py-2 text-xs font-bold uppercase tracking-wide text-slate-300 transition-colors hover:border-blue-500 hover:text-blue-300"
             >
-              <PlayCircle className="h-3.5 w-3.5 shrink-0" />
+              <PlayCircle className="h-3.5 w-3.5" />
               Regarder le résumé
             </a>
           )}
