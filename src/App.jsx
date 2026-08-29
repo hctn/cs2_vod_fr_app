@@ -36,6 +36,11 @@ import {
    par heure en cas d'égalité de date — donc pas besoin d'un comparateur à
    plusieurs niveaux séparés. L'heure n'est en revanche jamais affichée sur
    les cartes (seule la date l'est, voir MatchCard).
+
+   Identité visuelle : pas de dégradés (retirés au profit de couleurs pleines,
+   bleu pour le mode Viewer / orange pour le mode Admin). Les logos (équipe
+   ET tournoi) sont affichés sur une pastille claire (bg-slate-100) pour
+   rester lisibles même quand le logo lui-même est sombre.
    ============================================================================ */
 
 const STORAGE_KEY = "cs2vodfr_matches";
@@ -52,6 +57,7 @@ const MOCK_MATCHES = [
     matchDate: "2026-02-14",
     matchBeginAt: "2026-02-14T14:00:00Z",
     tournament: "IEM Katowice 2026",
+    tournamentLogo: "",
     stage: "Quart de finale",
     teamA: "Vitality",
     teamB: "MOUZ",
@@ -71,6 +77,7 @@ const MOCK_MATCHES = [
     matchDate: "2026-03-22",
     matchBeginAt: "2026-03-22T17:30:00Z",
     tournament: "Blast Premier Fall 2026",
+    tournamentLogo: "",
     stage: "Demi-finale",
     teamA: "Natus Vincere",
     teamB: "Team Spirit",
@@ -90,6 +97,7 @@ const MOCK_MATCHES = [
     matchDate: "2026-01-30",
     matchBeginAt: "2026-01-30T12:00:00Z",
     tournament: "ESL Pro League S20",
+    tournamentLogo: "",
     stage: "Poules",
     teamA: "G2",
     teamB: "FaZe",
@@ -109,6 +117,7 @@ const MOCK_MATCHES = [
     matchDate: "2026-02-16",
     matchBeginAt: "2026-02-16T19:00:00Z",
     tournament: "IEM Katowice 2026",
+    tournamentLogo: "",
     stage: "Finale",
     teamA: "Astralis",
     teamB: "Heroic",
@@ -132,6 +141,7 @@ const EMPTY_FORM = {
   // utilisé uniquement pour le tri fin (date + heure), jamais affiché.
   matchBeginAt: "",
   tournament: "",
+  tournamentLogo: "",
   stage: "",
   teamA: "",
   teamB: "",
@@ -200,6 +210,7 @@ function normalizePandaScorePayload(data) {
     teamALogo: data?.teamALogo ?? "",
     teamBLogo: data?.teamBLogo ?? "",
     tournament: data?.tournament ?? "",
+    tournamentLogo: data?.tournamentLogo ?? "",
     stage: data?.stage ?? "",
     format: data?.format || "BO3",
     pandascoreId: data?.pandascoreId != null ? String(data.pandascoreId) : "",
@@ -320,7 +331,9 @@ export default function App() {
   // le début du match le plus récent de chaque tournoi, date + heure), et à
   // l'intérieur de chaque groupe, les matchs sont eux aussi triés du plus
   // récent au plus ancien — date de match d'abord, puis heure de début en
-  // cas d'égalité de date (voir matchSortTimestamp ci-dessus).
+  // cas d'égalité de date (voir matchSortTimestamp ci-dessus). Le logo affiché
+  // à côté du nom du tournoi est celui du premier match du groupe qui en a un
+  // (tous les matchs d'un même tournoi partagent normalement le même logo).
   const groupedMatches = useMemo(() => {
     const groups = new Map();
     for (const m of filteredMatches) {
@@ -334,7 +347,8 @@ export default function App() {
         (a, b) => matchSortTimestamp(b) - matchSortTimestamp(a)
       );
       const latestDate = sortedList.length ? matchSortTimestamp(sortedList[0]) : -Infinity;
-      return { tournament, matches: sortedList, latestDate };
+      const tournamentLogo = sortedList.find((m) => m.tournamentLogo)?.tournamentLogo || "";
+      return { tournament, matches: sortedList, latestDate, tournamentLogo };
     });
 
     result.sort((a, b) => b.latestDate - a.latestDate);
@@ -415,6 +429,7 @@ export default function App() {
         teamALogo: normalized.teamALogo || f.teamALogo,
         teamBLogo: normalized.teamBLogo || f.teamBLogo,
         tournament: normalized.tournament || f.tournament,
+        tournamentLogo: normalized.tournamentLogo || f.tournamentLogo,
         stage: normalized.stage || f.stage,
         format: normalized.format || f.format,
         matchDate: normalized.matchDate || f.matchDate,
@@ -491,6 +506,7 @@ export default function App() {
       teamALogo: result.teamALogo || f.teamALogo,
       teamBLogo: result.teamBLogo || f.teamBLogo,
       tournament: result.tournament || f.tournament,
+      tournamentLogo: result.tournamentLogo || f.tournamentLogo,
       stage: result.stage || f.stage,
       format: result.format || f.format,
       matchDate: isoToDateInput(result.beginAt) || f.matchDate,
@@ -567,6 +583,7 @@ export default function App() {
             matchDate: isoToDateInput(r.beginAt),
             matchBeginAt: r.beginAt || "",
             tournament: r.tournament || label,
+            tournamentLogo: r.tournamentLogo || "",
             stage: r.stage || "",
             teamA: r.teamA || "",
             teamB: r.teamB || "",
@@ -633,16 +650,12 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
-      <div className="pointer-events-none fixed inset-0 opacity-[0.04]" aria-hidden="true">
-        <div className="h-full w-full bg-gradient-to-br from-blue-500 via-transparent to-orange-500" />
-      </div>
-
       {/* Header */}
       <header className="sticky top-0 z-20 border-b border-zinc-800 bg-slate-950/90 backdrop-blur">
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-4">
           <div className="flex items-center gap-3">
             <div
-              className="flex h-10 w-10 items-center justify-center bg-gradient-to-br from-blue-500 to-orange-500"
+              className="flex h-10 w-10 items-center justify-center bg-blue-500"
               style={{ clipPath: "polygon(0 0, 100% 0, 100% 70%, 70% 100%, 0 100%)" }}
             >
               <Swords className="h-5 w-5 text-slate-950" strokeWidth={2.5} />
@@ -835,7 +848,18 @@ function ViewerView({
           {groups.map((group) => (
             <section key={group.tournament}>
               <h2 className="mb-4 flex items-center gap-2 border-b border-zinc-800 pb-2 text-sm font-bold uppercase tracking-wide text-slate-300">
-                <Trophy className="h-4 w-4 text-orange-400" />
+                {group.tournamentLogo ? (
+                  <img
+                    src={group.tournamentLogo}
+                    alt=""
+                    className="h-5 w-5 shrink-0 rounded-sm bg-slate-100 object-contain p-0.5"
+                    onError={(e) => {
+                      e.currentTarget.style.display = "none";
+                    }}
+                  />
+                ) : (
+                  <Trophy className="h-4 w-4 text-orange-400" />
+                )}
                 {group.tournament}
                 <span className="ml-1 font-mono text-xs font-normal text-slate-600">
                   ({group.matches.length})
@@ -859,11 +883,9 @@ function MatchCard({ match }) {
 
   return (
     <div
-      className="group relative flex flex-col overflow-hidden border border-zinc-800 bg-zinc-900/60 transition-colors hover:border-zinc-700"
+      className="group relative flex flex-col overflow-hidden border border-zinc-700 bg-zinc-800 transition-colors hover:border-zinc-600"
       style={{ clipPath: "polygon(0 0, calc(100% - 18px) 0, 100% 18px, 100% 100%, 0 100%)" }}
     >
-      <div className="h-1 w-full bg-gradient-to-r from-blue-500 to-orange-500" />
-
       <div className="flex flex-1 flex-col gap-4 p-5">
         {/* Stage + date (le nom du tournoi est déjà affiché en titre de
             section ; seule la date est affichée, jamais l'heure) */}
@@ -884,14 +906,14 @@ function MatchCard({ match }) {
         {/* Teams */}
         <div className="flex items-center justify-between gap-2">
           <TeamBlock name={match.teamA} logo={match.teamALogo} />
-          <span className="shrink-0 font-mono text-sm font-bold text-slate-600">VS</span>
+          <span className="shrink-0 font-mono text-sm font-bold text-slate-500">VS</span>
           <TeamBlock name={match.teamB} logo={match.teamBLogo} align="right" />
         </div>
 
         {/* Meta row (le timecode de la VOD n'est pas affiché sur la carte,
             seule l'icône de plateforme reste visible) */}
         <div className="flex flex-wrap items-center gap-2">
-          <span className="rounded border border-zinc-700 bg-zinc-800 px-2 py-0.5 font-mono text-[11px] font-bold text-slate-300">
+          <span className="rounded border border-zinc-600 bg-zinc-900 px-2 py-0.5 font-mono text-[11px] font-bold text-slate-300">
             {match.format}
           </span>
           <span
@@ -930,16 +952,18 @@ function TeamBlock({ name, logo, align = "left" }) {
   return (
     <div className={`flex min-w-0 flex-1 items-center gap-2 ${align === "right" ? "flex-row-reverse text-right" : ""}`}>
       {logo ? (
-        <img
-          src={logo}
-          alt={name}
-          className="h-8 w-8 shrink-0 object-contain"
-          onError={(e) => {
-            e.currentTarget.style.display = "none";
-          }}
-        />
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-slate-100 p-1">
+          <img
+            src={logo}
+            alt={name}
+            className="h-full w-full object-contain"
+            onError={(e) => {
+              e.currentTarget.parentElement.style.display = "none";
+            }}
+          />
+        </div>
       ) : (
-        <div className="flex h-8 w-8 shrink-0 items-center justify-center font-mono text-sm font-bold text-slate-300">
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-zinc-900 font-mono text-sm font-bold text-slate-300">
           {initial}
         </div>
       )}
@@ -1117,11 +1141,25 @@ function AdminView({
                     key={t.serieId}
                     className="flex items-center justify-between gap-2 bg-zinc-900 px-3 py-2 text-xs"
                   >
-                    <div className="min-w-0">
-                      <p className="truncate font-semibold text-slate-200">{t.label}</p>
-                      {t.beginAt && (
-                        <p className="text-slate-500">{formatDateFr(isoToDateInput(t.beginAt))}</p>
+                    <div className="flex min-w-0 items-center gap-2">
+                      {t.logo ? (
+                        <img
+                          src={t.logo}
+                          alt=""
+                          className="h-6 w-6 shrink-0 rounded-sm bg-slate-100 object-contain p-0.5"
+                          onError={(e) => {
+                            e.currentTarget.style.display = "none";
+                          }}
+                        />
+                      ) : (
+                        <Trophy className="h-4 w-4 shrink-0 text-slate-600" />
                       )}
+                      <div className="min-w-0">
+                        <p className="truncate font-semibold text-slate-200">{t.label}</p>
+                        {t.beginAt && (
+                          <p className="text-slate-500">{formatDateFr(isoToDateInput(t.beginAt))}</p>
+                        )}
+                      </div>
                     </div>
                     <button
                       type="button"
@@ -1188,6 +1226,14 @@ function AdminView({
                   onChange={(e) => updateForm("tournament", e.target.value)}
                   placeholder="ex: IEM Katowice 2026"
                   className="input"
+                />
+              </Field>
+              <Field label="Logo du tournoi (URL)">
+                <input
+                  value={form.tournamentLogo}
+                  onChange={(e) => updateForm("tournamentLogo", e.target.value)}
+                  placeholder="https://…/logo-tournoi.png"
+                  className="input font-mono text-xs"
                 />
               </Field>
               <Field label="Date du match">
