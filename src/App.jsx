@@ -67,6 +67,7 @@ const MOCK_MATCHES = [
     caster: "KRL",
     platform: "twitch",
     vodUrl: "https://www.twitch.tv/videos/2109384756",
+    summaryUrl: "",
     h: 0,
     m: 15,
     s: 32,
@@ -87,6 +88,7 @@ const MOCK_MATCHES = [
     caster: "Croissant Strike",
     platform: "youtube",
     vodUrl: "https://youtu.be/dQw4w9WgXcQ",
+    summaryUrl: "",
     h: 1,
     m: 2,
     s: 10,
@@ -107,6 +109,7 @@ const MOCK_MATCHES = [
     caster: "MGG",
     platform: "twitch",
     vodUrl: "https://www.twitch.tv/videos/2109384001",
+    summaryUrl: "",
     h: 0,
     m: 5,
     s: 0,
@@ -127,6 +130,7 @@ const MOCK_MATCHES = [
     caster: "VaKarM",
     platform: "youtube",
     vodUrl: "https://www.youtube.com/watch?v=jNQXAC9IVRw",
+    summaryUrl: "",
     h: 2,
     m: 30,
     s: 45,
@@ -151,6 +155,9 @@ const EMPTY_FORM = {
   caster: "",
   platform: "twitch",
   vodUrl: "",
+  // URL optionnelle vers un résumé du match (pas de timecode associé,
+  // le lien est utilisé tel quel).
+  summaryUrl: "",
   h: 0,
   m: 0,
   s: 0,
@@ -590,6 +597,7 @@ export default function App() {
             teamALogo: r.teamALogo || "",
             teamBLogo: r.teamBLogo || "",
             format: r.format || "BO3",
+            summaryUrl: r.summaryUrl || "",
           }));
         setBulkImportFeedback(
           additions.length > 0
@@ -847,12 +855,12 @@ function ViewerView({
         <div className="space-y-10">
           {groups.map((group) => (
             <section key={group.tournament}>
-              <h2 className="mb-4 flex items-center gap-2 border-b border-zinc-800 pb-2 text-sm font-bold uppercase tracking-wide text-slate-300">
+              <h2 className="mb-4 flex items-center gap-3 border-b border-zinc-800 pb-2 text-sm font-bold uppercase tracking-wide text-slate-300">
                 {group.tournamentLogo ? (
                   <img
                     src={group.tournamentLogo}
                     alt=""
-                    className="h-5 w-5 shrink-0 rounded-sm bg-slate-100 object-contain p-0.5"
+                    className="h-11 w-11 shrink-0 rounded-md bg-slate-100 object-contain p-1.5"
                     onError={(e) => {
                       e.currentTarget.style.display = "none";
                     }}
@@ -880,6 +888,8 @@ function ViewerView({
 
 function MatchCard({ match }) {
   const finalUrl = buildFinalUrl(match.platform, match.vodUrl, match.h, match.m, match.s);
+  const hasVod = Boolean(finalUrl);
+  const hasSummary = Boolean(match.summaryUrl);
 
   return (
     <div
@@ -932,16 +942,37 @@ function MatchCard({ match }) {
           </span>
         </div>
 
-        {/* CTA */}
-        <a
-          href={finalUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="mt-auto flex items-center justify-center gap-2 bg-blue-500 py-2.5 text-sm font-bold uppercase tracking-wide text-slate-950 transition-colors hover:bg-blue-400"
-        >
-          <PlayCircle className="h-4 w-4" />
-          Regarder la rediffusion
-        </a>
+        {/* CTA(s) */}
+        <div className="mt-auto flex flex-col gap-2">
+          {hasVod ? (
+            <a
+              href={finalUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center justify-center gap-2 bg-blue-500 py-2.5 text-sm font-bold uppercase tracking-wide text-slate-950 transition-colors hover:bg-blue-400"
+            >
+              <PlayCircle className="h-4 w-4" />
+              Regarder la rediffusion
+            </a>
+          ) : (
+            <div className="flex cursor-not-allowed items-center justify-center gap-2 bg-zinc-700 py-2.5 text-sm font-bold uppercase tracking-wide text-slate-400">
+              <Radio className="h-4 w-4" />
+              Rediffusion à venir
+            </div>
+          )}
+
+          {hasSummary && (
+            <a
+              href={match.summaryUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center justify-center gap-2 border border-zinc-600 py-2 text-xs font-bold uppercase tracking-wide text-slate-300 transition-colors hover:border-blue-500 hover:text-blue-300"
+            >
+              <PlayCircle className="h-3.5 w-3.5" />
+              Regarder le résumé
+            </a>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -1343,6 +1374,15 @@ function AdminView({
                 />
               </Field>
             </div>
+
+            <Field label="URL du résumé (optionnel)">
+              <input
+                value={form.summaryUrl}
+                onChange={(e) => updateForm("summaryUrl", e.target.value)}
+                placeholder="https://www.youtube.com/watch?v=… (lien utilisé tel quel, sans timecode)"
+                className="input font-mono text-xs"
+              />
+            </Field>
 
             <Field label="Timecode de démarrage">
               <div className="flex items-center gap-2">
