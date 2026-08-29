@@ -26,6 +26,16 @@ import {
    Un seul fichier, prêt à intégrer dans un projet React + Tailwind + lucide-react.
    Persistance locale via localStorage. Import optionnel des métadonnées de
    match depuis un proxy PandaScore (https://cs2-vod-fr.onrender.com).
+
+   Tri des cartes : tournoi → date de match → heure de début de match.
+   Le tri "date + heure" est géré en une seule comparaison en s'appuyant sur
+   `matchBeginAt` (horodatage ISO complet renvoyé par PandaScore, ex:
+   "2026-02-14T18:00:00Z"), qui est plus précis que `matchDate` (juste la
+   date, utilisée pour l'affichage et le <input type="date">). Comparer des
+   timestamps complets revient mécaniquement à trier d'abord par date puis
+   par heure en cas d'égalité de date — donc pas besoin d'un comparateur à
+   plusieurs niveaux séparés. L'heure n'est en revanche jamais affichée sur
+   les cartes (seule la date l'est, voir MatchCard).
    ============================================================================ */
 
 const STORAGE_KEY = "cs2vodfr_matches";
@@ -40,6 +50,7 @@ const MOCK_MATCHES = [
     id: "m1",
     pandascoreId: "2374829",
     matchDate: "2026-02-14",
+    matchBeginAt: "2026-02-14T14:00:00Z",
     tournament: "IEM Katowice 2026",
     stage: "Quart de finale",
     teamA: "Vitality",
@@ -58,6 +69,7 @@ const MOCK_MATCHES = [
     id: "m2",
     pandascoreId: "2374855",
     matchDate: "2026-03-22",
+    matchBeginAt: "2026-03-22T17:30:00Z",
     tournament: "Blast Premier Fall 2026",
     stage: "Demi-finale",
     teamA: "Natus Vincere",
@@ -76,6 +88,7 @@ const MOCK_MATCHES = [
     id: "m3",
     pandascoreId: "2374701",
     matchDate: "2026-01-30",
+    matchBeginAt: "2026-01-30T12:00:00Z",
     tournament: "ESL Pro League S20",
     stage: "Poules",
     teamA: "G2",
@@ -94,6 +107,7 @@ const MOCK_MATCHES = [
     id: "m4",
     pandascoreId: "2374912",
     matchDate: "2026-02-16",
+    matchBeginAt: "2026-02-16T19:00:00Z",
     tournament: "IEM Katowice 2026",
     stage: "Finale",
     teamA: "Astralis",
@@ -114,6 +128,9 @@ const EMPTY_FORM = {
   id: null,
   pandascoreId: "",
   matchDate: "",
+  // Horodatage ISO complet du début du match (ex: "2026-02-14T18:00:00Z"),
+  // utilisé uniquement pour le tri fin (date + heure), jamais affiché.
+  matchBeginAt: "",
   tournament: "",
   stage: "",
   teamA: "",
@@ -187,6 +204,9 @@ function normalizePandaScorePayload(data) {
     format: data?.format || "BO3",
     pandascoreId: data?.pandascoreId != null ? String(data.pandascoreId) : "",
     matchDate: isoToDateInput(data?.beginAt),
+    // On conserve l'horodatage complet (avec l'heure) pour le tri fin des
+    // cartes, en plus de matchDate qui ne garde que le jour.
+    matchBeginAt: data?.beginAt ?? "",
   };
 }
 
@@ -204,6 +224,18 @@ function formatDateFr(dateStr) {
   const d = new Date(`${dateStr}T00:00:00`);
   if (Number.isNaN(d.getTime())) return "";
   return d.toLocaleDateString("fr-FR", { day: "numeric", month: "short", year: "numeric" });
+}
+
+// Horodatage utilisé pour le tri chronologique des matchs : on privilégie
+// matchBeginAt (date + heure) quand il est disponible et valide, et on
+// retombe sur matchDate (minuit) sinon — par exemple pour les matchs ajoutés
+// manuellement sans import PandaScore.
+function matchSortTimestamp(m) {
+  if (m.matchBeginAt) {
+    const t = new Date(m.matchBeginAt).getTime();
+    if (!Number.isNaN(t)) return t;
+  }
+  return m.matchDate ? new Date(m.matchDate).getTime() : -Infinity;
 }
 
 /* --- App ------------------------------------------------------------------ */
@@ -284,9 +316,11 @@ export default function App() {
     });
   }, [matches, search, filterTournament, filterCaster]);
 
-  // Regroupement par tournoi : les groupes sont triés chronologiquement (par la
-  // date du match le plus récent de chaque tournoi), et à l'intérieur de chaque
-  // groupe, les matchs sont eux aussi triés du plus récent au plus ancien.
+  // Regroupement par tournoi : les groupes sont triés chronologiquement (par
+  // le début du match le plus récent de chaque tournoi, date + heure), et à
+  // l'intérieur de chaque groupe, les matchs sont eux aussi triés du plus
+  // récent au plus ancien — date de match d'abord, puis heure de début en
+  // cas d'égalité de date (voir matchSortTimestamp ci-dessus).
   const groupedMatches = useMemo(() => {
     const groups = new Map();
     for (const m of filteredMatches) {
@@ -295,11 +329,11 @@ export default function App() {
       groups.get(key).push(m);
     }
 
-    const dateTime = (m) => (m.matchDate ? new Date(m.matchDate).getTime() : -Infinity);
-
     const result = Array.from(groups.entries()).map(([tournament, list]) => {
-      const sortedList = [...list].sort((a, b) => dateTime(b) - dateTime(a));
-      const latestDate = sortedList.length ? dateTime(sortedList[0]) : -Infinity;
+      const sortedList = [...list].sort(
+        (a, b) => matchSortTimestamp(b) - matchSortTimestamp(a)
+      );
+      const latestDate = sortedList.length ? matchSortTimestamp(sortedList[0]) : -Infinity;
       return { tournament, matches: sortedList, latestDate };
     });
 
@@ -384,6 +418,7 @@ export default function App() {
         stage: normalized.stage || f.stage,
         format: normalized.format || f.format,
         matchDate: normalized.matchDate || f.matchDate,
+        matchBeginAt: normalized.matchBeginAt || f.matchBeginAt,
       }));
       setSearchResults([]);
     } catch (err) {
@@ -459,6 +494,7 @@ export default function App() {
       stage: result.stage || f.stage,
       format: result.format || f.format,
       matchDate: isoToDateInput(result.beginAt) || f.matchDate,
+      matchBeginAt: result.beginAt || f.matchBeginAt,
     }));
     setSearchResults([]);
     setSearchQuery("");
@@ -529,6 +565,7 @@ export default function App() {
             id: `m${Date.now()}_${i}`,
             pandascoreId: r.pandascoreId || "",
             matchDate: isoToDateInput(r.beginAt),
+            matchBeginAt: r.beginAt || "",
             tournament: r.tournament || label,
             stage: r.stage || "",
             teamA: r.teamA || "",
